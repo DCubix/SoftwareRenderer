@@ -2,6 +2,8 @@
 
 #include <string.h>
 #include "util.h"
+#include "stb.h"
+#include "vecmath.h"
 
 void p3d_bitmap_new(Bitmap* bmp, int width, int height) {
 	bmp->width = width;
@@ -22,6 +24,47 @@ void p3d_bitmap_new(Bitmap* bmp, int width, int height) {
 #endif
 
 	bmp->surface = SDL_CreateRGBSurface(SDL_HWSURFACE, width, height, 32, rmask, gmask, bmask, amask);
+}
+
+void p3d_bitmap_from_file(Bitmap* bmp, const char* fileName) {
+	int w, h, comp;
+
+	Uint8* pixels = stbi_load(fileName, &w, &h, &comp, STBI_rgb_alpha);
+	if (pixels) {
+		Uint8* pixel_data = (Uint8*) malloc(w * h * 4 * sizeof(Uint8));
+		for (int i = 0; i < w * h * 4; i += 4) {
+			pixel_data[i + 0] = pixels[i + 0];
+			pixel_data[i + 1] = pixels[i + 1];
+			pixel_data[i + 2] = pixels[i + 2];
+			if (w * h * comp == w * h * 4) {
+				pixel_data[i + 3] = pixels[i + 3];
+			} else {
+				pixel_data[i + 3] = (Uint8) 255;
+			}
+		}
+
+		bmp->width = w;
+		bmp->height = h;
+		bmp->pixels = pixel_data;
+
+		Uint32 rmask, gmask, bmask, amask;
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+		rmask = 0xff000000;
+		gmask = 0x00ff0000;
+		bmask = 0x0000ff00;
+		amask = 0x000000ff;
+#else
+		rmask = 0x000000ff;
+		gmask = 0x0000ff00;
+		bmask = 0x00ff0000;
+		amask = 0xff000000;
+#endif
+		bmp->surface = SDL_CreateRGBSurface(SDL_HWSURFACE, w, h, 32, rmask, gmask, bmask, amask);
+
+		p3d_bitmap_invalidate(bmp);
+
+		STBI_FREE(pixels);
+	}
 }
 
 void p3d_bitmap_free(Bitmap* bmp) {
@@ -94,4 +137,18 @@ void p3d_bitmap_clear(Bitmap* bmp, Color color) {
 			p3d_bitmap_set(bmp, x, y, color);
 		}
 	}
+}
+
+void p3d_bitmap_set_pixels(Bitmap* bmp, Uint8* pixels) {
+	memcpy(bmp->pixels, pixels, bmp->width * bmp->height * 4 * sizeof(Uint8));
+	free(pixels);
+}
+
+Color p3d_color_mul(Color a, Color b) {
+	Color r;
+	r.r = min(max(a.r * b.r, 0.0f), 1.0f);
+	r.g = min(max(a.g * b.g, 0.0f), 1.0f);
+	r.b = min(max(a.b * b.b, 0.0f), 1.0f);
+	r.a = min(max(a.a * b.a, 0.0f), 1.0f);
+	return r;
 }

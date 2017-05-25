@@ -13,11 +13,17 @@ void p3d_rasty_new(Rasterizer* r, Bitmap* buffer) {
 	r->color.g = 1;
 	r->color.b = 1;
 	r->color.a = 1;
+	r->bound_texture = -1;
+	r->texture_count = 0;
+
+	for (int i = 0; i < MAX_TEXTURES; i++) {
+		r->textures[i] = NULL;
+	}
 
 	int zsize = buffer->width * buffer->height;
 	r->zbuffer = (float*) malloc(zsize * sizeof(float));
 	for (int i = 0; i < zsize; i++) {
-		r->zbuffer[i] = -FLT_MAX;
+		r->zbuffer[i] = 0;
 	}
 
 	mat4_viewport(&r->viewport, 0, 0, buffer->width, buffer->height);
@@ -55,21 +61,22 @@ void p3d_rasty_line(Rasterizer* r, int x0, int y0, int x1, int y1) {
 	}
 }
 
-void p3d_rasty_triangle(Rasterizer* r, vec4 p1, vec4 p2, vec4 p3) {
+void p3d_rasty_triangle(Rasterizer* r, Vertex p1, Vertex p2, Vertex p3) {
 	vec2 bboxmin = { FLT_MAX, FLT_MAX };
 	vec2 bboxmax = { -FLT_MAX, -FLT_MAX };
 	vec2 clamp = { r->buffer->width-1, r->buffer->height-1 };
 
-	vec4 pts[3] = { // Viewport transform
-		mat4_mul_v4(r->viewport, p1),
-		mat4_mul_v4(r->viewport, p2),
-		mat4_mul_v4(r->viewport, p3)
+	Vertex pts[3] = { // Viewport transform
+		p3d_vertex_transform(p1, r->viewport),
+		p3d_vertex_transform(p2, r->viewport),
+		p3d_vertex_transform(p3, r->viewport),
 	};
 
-	vec2 pts2[3];
+	vec3 pts2[3];
 	for (int i = 0; i < 3; i++) {
-		pts2[i].x = pts[i].x / pts[i].w;
-		pts2[i].y = pts[i].y / pts[i].w;
+		pts2[i].x = pts[i].position.x / pts[i].position.w;
+		pts2[i].y = pts[i].position.y / pts[i].position.w;
+		pts2[i].z = pts[i].position.z / pts[i].position.w;
 	}
 
 	for (int i = 0; i < 3; i++) {
@@ -83,40 +90,48 @@ void p3d_rasty_triangle(Rasterizer* r, vec4 p1, vec4 p2, vec4 p3) {
 	for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++) {
 		for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++) {
 			vec3 bc_screen = p3d_barycentric(pts2[0], pts2[1], pts2[2], P);
+			if (bc_screen.x < 0.0f || bc_screen.y < 0.0f ||	bc_screen.z < 0.0f) { continue; }
 			vec3 bc_clip = {
-				bc_screen.x / pts[0].w,
-				bc_screen.y / pts[1].w,
-				bc_screen.z / pts[2].w
+				bc_screen.x / pts[0].position.w,
+				bc_screen.y / pts[1].position.w,
+				bc_screen.z / pts[2].position.w
 			};
-			int index = (P.x + P.y * r->buffer->width);
 
-			bc_clip = vec3_div_s(bc_clip, (bc_clip.x + bc_clip.y + bc_clip.z));
-			float fragDepth = vec3_dot(vec3_from_vec4(p3), bc_clip);
+			int index = P.x + P.y * r->buffer->width;
+			float depth = bc_clip.x + bc_clip.y + bc_clip.z;
+			depth = 1.0f - depth;
 
-			if (bc_screen.x < 0.0f ||
-				bc_screen.y < 0.0f ||
-				bc_screen.z < 0.0f ||
-				r->zbuffer[index] > fragDepth)
-			{
-				continue;
+			if (r->zbuffer[index] < depth) {
+				r->zbuffer[index] = depth;
+				Bitmap* tex = NULL;
+				if (r->bound_texture > -1) {
+					tex = r->textures[r->bound_texture];
+				}
+				if (tex) {
+					float u = (p1.uv.x * bc_clip.x + p2.uv.x * bc_clip.y + p3.uv.x * bc_clip.z) /
+							  (bc_clip.x + bc_clip.y + bc_clip.z);
+					float v = (p1.uv.y * bc_clip.x + p2.uv.y * bc_clip.y + p3.uv.y * bc_clip.z) /
+							  (bc_clip.x + bc_clip.y + bc_clip.z);
+					float tx = (int)(u * tex->width);
+					float ty = (int)(v * tex->height);
+
+					Color col = p3d_color_mul(r->color, p3d_bitmap_get(tex, tx, ty));
+					if (col.a > 0) {
+						p3d_bitmap_set(r->buffer, P.x, P.y, col);
+					}
+				} else {
+					p3d_bitmap_set(r->buffer, P.x, P.y, r->color);
+				}
 			}
-
-			r->zbuffer[index] = fragDepth;
-			p3d_bitmap_set(r->buffer, (int) P.x, (int) P.y, r->color);
 		}
 	}
 }
 
-vec3 p3d_barycentric(vec2 A, vec2 B, vec2 C, Point p) {
-	vec3 s[2];
+vec3 p3d_barycentric(vec3 a, vec3 b, vec3 c, Point p) {
+	vec3 s0 = ctor(vec3, c.x - a.x, b.x - a.x, a.x - p.x);
+	vec3 s1 = ctor(vec3, c.y - a.y, b.y - a.y, a.y - p.y);
 
-	for (int i = 2; i >= 0; i--) {
-		s[i].v[0] = C.v[i] - A.v[i];
-		s[i].v[1] = B.v[i] - A.v[i];
-		s[i].v[2] = A.v[i] - p.v[i];
-	}
-
-	vec3 u = vec3_cross(s[0], s[1]);
+	vec3 u = vec3_cross(s0, s1);
 
 	vec3 r = { -1, 1, 1 };
 	if (abs(u.z) > 1e-2) {
@@ -131,6 +146,36 @@ vec3 p3d_barycentric(vec2 A, vec2 B, vec2 C, Point p) {
 void p3d_rasty_clear(Rasterizer* r, Color color) {
 	p3d_bitmap_clear(r->buffer, color);
 	for (int i = 0; i < r->buffer->width * r->buffer->height; i++) {
-		r->zbuffer[i] = -FLT_MAX;
+		r->zbuffer[i] = 0;
 	}
+}
+
+void p3d_rasty_free(Rasterizer* r) {
+	for (int i = 0; i < MAX_TEXTURES; i++) {
+		if (r->textures[i]) {
+			p3d_bitmap_free(r->textures[i]);
+			r->textures[i] = NULL;
+		}
+	}
+}
+
+Uint32 p3d_rasty_create_texture(Rasterizer* r, int width, int height, Uint8* pixels) {
+	Uint32 tex = r->texture_count;
+	Bitmap* bmp = (Bitmap*) malloc(sizeof(Bitmap));
+	p3d_bitmap_new(bmp, width, height);
+	p3d_bitmap_set_pixels(bmp, pixels);
+	r->textures[tex % MAX_TEXTURES] = bmp;
+	r->texture_count++;
+	return tex;
+}
+
+void p3d_rasty_bind_texture(Rasterizer* r, int slot) {
+	if (r->textures[slot] == NULL) {
+		return;
+	}
+	r->bound_texture = slot;
+}
+
+void p3d_rasty_set_color(Rasterizer* r, Color col) {
+	r->color = col;
 }

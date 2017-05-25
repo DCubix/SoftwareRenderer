@@ -242,11 +242,11 @@ void mat4_viewport(mat4* m, int x, int y, int w, int h) {
 	mat4_identity(m);
 	m->value[0][3] = x + w / 2.0f;
 	m->value[1][3] = y + h / 2.0f;
-	m->value[2][3] = 1.0f;
+	m->value[2][3] = 0.5f;
 
 	m->value[0][0] = w / 2.0f;
-	m->value[1][1] = h / 2.0f;
-	m->value[2][2] = 0.0f;
+	m->value[1][1] = -h / 2.0f;
+	m->value[2][2] = 0.5f;
 }
 
 void vec2_print(vec2 v) {
@@ -282,5 +282,14 @@ vec3 vec3_div_s(vec3 a, float b) {
 	r.x = a.x / b;
 	r.y = a.y / b;
 	r.z = a.z / b;
+	return r;
+}
+
+vec4 vec4_perspective_divide(vec4 v) {
+	vec4 r;
+	r.x = v.x / v.w;
+	r.y = v.y / v.w;
+	r.z = v.z / v.w;
+	r.w = v.w;
 	return r;
 }

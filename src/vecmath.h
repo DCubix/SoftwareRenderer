@@ -51,6 +51,8 @@ float vec3_length(vec3 v);
 vec3 vec3_normalize(vec3 v);
 vec3 vec3_from_vec4(vec4 v);
 
+vec4 vec4_perspective_divide(vec4 v);
+
 // MAT4
 float mat4_get(mat4 m, int row, int col);
 void mat4_set(mat4* m, int row, int col, float v);

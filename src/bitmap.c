@@ -152,3 +152,12 @@ Color p3d_color_mul(Color a, Color b) {
 	r.a = min(max(a.a * b.a, 0.0f), 1.0f);
 	return r;
 }
+
+Color p3d_color_blend(Color a, Color b, float fac) {
+	Color r;
+	r.r = (a.r * (1.0f - fac)) + (b.r * fac);
+	r.g = (a.g * (1.0f - fac)) + (b.g * fac);
+	r.b = (a.b * (1.0f - fac)) + (b.b * fac);
+	r.a = b.a;
+	return r;
+}

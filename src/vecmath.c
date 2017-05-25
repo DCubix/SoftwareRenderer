@@ -178,6 +178,12 @@ void mat4_translation(mat4* m, vec3 v) {
 	m->value[2][3] = v.z;
 }
 
+void mat4_translate(mat4* m, vec3 v) {
+	m->value[0][3] += v.x;
+	m->value[1][3] += v.y;
+	m->value[2][3] += v.z;
+}
+
 void mat4_scaling(mat4* m, vec3 v) {
 	mat4_identity(m);
 	m->value[0][0] = v.x;
@@ -249,6 +255,33 @@ void mat4_viewport(mat4* m, int x, int y, int w, int h) {
 	m->value[2][2] = 0.5f;
 }
 
+void mat4_lookat(mat4* m, vec3 eye, vec3 center, vec3 up) {
+	vec3 z = vec3_normalize(vec3_sub(eye, center));
+	vec3 x = vec3_normalize(vec3_cross(up, z));
+	vec3 y = vec3_normalize(vec3_cross(z, x));
+	mat4 minv, tr;
+	mat4_identity(&minv);
+	mat4_identity(&tr);
+
+	for (int i = 0; i < 3; i++) {
+		minv.value[0][i] = x.v[i];
+		minv.value[1][i] = y.v[i];
+		minv.value[2][i] = z.v[i];
+		tr.value[i][3] = -center.v[i];
+	}
+	*m = mat4_mul_m(minv, tr);
+}
+
+void mat4_cancel_translation(mat4* m) {
+	m->value[0][3] = 0;
+	m->value[1][3] = 0;
+	m->value[2][3] = 0;
+	m->value[3][3] = 1;
+	m->value[3][0] = 0;
+	m->value[3][1] = 0;
+	m->value[3][2] = 0;
+}
+
 void vec2_print(vec2 v) {
 	printf("< %.4f, %.4f >\n", v.x, v.y);
 }
@@ -292,4 +325,26 @@ vec4 vec4_perspective_divide(vec4 v) {
 	r.z = v.z / v.w;
 	r.w = v.w;
 	return r;
+}
+
+vec4 mat4_get_row(mat4 m, int index) {
+	vec4 r;
+	r.x = m.value[index][0];
+	r.y = m.value[index][1];
+	r.z = m.value[index][2];
+	r.w = m.value[index][3];
+	return r;
+}
+
+vec4 mat4_get_column(mat4 m, int index) {
+	vec4 r;
+	r.x = m.value[0][index];
+	r.y = m.value[1][index];
+	r.z = m.value[2][index];
+	r.w = m.value[3][index];
+	return r;
+}
+
+vec4 vec4_negate(vec4 v) {
+	return ctor(vec4, -v.x, -v.y, -v.z, -v.w);
 }

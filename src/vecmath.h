@@ -51,7 +51,9 @@ float vec3_length(vec3 v);
 vec3 vec3_normalize(vec3 v);
 vec3 vec3_from_vec4(vec4 v);
 
+// VEC4
 vec4 vec4_perspective_divide(vec4 v);
+vec4 vec4_negate(vec4 v);
 
 // MAT4
 float mat4_get(mat4 m, int row, int col);
@@ -60,10 +62,15 @@ void mat4_set_index(mat4* m, int index, float v);
 
 void mat4_identity(mat4* m);
 void mat4_translation(mat4* m, vec3 v);
+void mat4_translate(mat4* m, vec3 v);
 void mat4_scaling(mat4* m, vec3 v);
 void mat4_rotation(mat4* m, vec3 axis, float a);
 void mat4_perspective(mat4* m, float fov, float aspect, float znear, float zfar);
 void mat4_viewport(mat4* m, int x, int y, int w, int h);
+void mat4_lookat(mat4* m, vec3 eye, vec3 center, vec3 up);
+void mat4_cancel_translation(mat4* m);
+vec4 mat4_get_row(mat4 m, int index);
+vec4 mat4_get_column(mat4 m, int index);
 
 mat4 mat4_mul_m(mat4 a, mat4 b);
 vec3 mat4_mul_v(mat4 a, vec3 b, float w);

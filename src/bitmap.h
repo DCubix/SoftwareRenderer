@@ -7,6 +7,7 @@ typedef struct p3dcolor {
 	float r, g, b, a;
 } Color;
 
+static const Color P3D_COLOR_TRANSP		= { 0, 0, 0, 0 };
 static const Color P3D_COLOR_BLACK		= { 0, 0, 0, 1 };
 static const Color P3D_COLOR_GREY		= { 0.5f, 0.5f, 0.5f, 1 };
 static const Color P3D_COLOR_WHITE		= { 1, 1, 1, 1 };
@@ -30,6 +31,7 @@ void p3d_bitmap_set(Bitmap* bmp, int x, int y, Color color);
 Color p3d_bitmap_get(Bitmap* bmp, int x, int y);
 
 Color p3d_color_mul(Color a, Color b);
+Color p3d_color_blend(Color a, Color b, float fac);
 
 void p3d_bitmap_set_pixels(Bitmap* bmp, Uint8* pixels);
 

@@ -4,6 +4,13 @@
 #include <math.h>
 #include <stdlib.h>
 
+typedef struct vm_point {
+	union {
+		int v[2];
+		struct { int x, y; };
+	};
+} Point;
+
 typedef struct vm_vec2 {
 	union {
 		float v[2];
@@ -38,6 +45,7 @@ float vec2_dot(vec2 a, vec2 b);
 float vec2_cross(vec2 a, vec2 b);
 float vec2_length(vec2 v);
 vec2 vec2_normalize(vec2 v);
+vec2 vec2_rotate(vec2 p, float a);
 
 // VEC3
 vec3 vec3_add(vec3 a, vec3 b);
@@ -68,6 +76,8 @@ void mat4_rotation(mat4* m, vec3 axis, float a);
 void mat4_perspective(mat4* m, float fov, float aspect, float znear, float zfar);
 void mat4_viewport(mat4* m, int x, int y, int w, int h);
 void mat4_lookat(mat4* m, vec3 eye, vec3 center, vec3 up);
+mat4 mat4_transpose(mat4 m);
+mat4 mat4_invert(mat4 m);
 void mat4_cancel_translation(mat4* m);
 vec4 mat4_get_row(mat4 m, int index);
 vec4 mat4_get_column(mat4 m, int index);

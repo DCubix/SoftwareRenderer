@@ -1,12 +1,11 @@
 #include "rasterizer.h"
 
-#include "util.h"
 #include <math.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+#include <assert.h>
 
 #define MAX_ITEMS 9999
 
@@ -17,6 +16,9 @@ void p3d_rasty_new(Rasterizer* r, Bitmap* buffer) {
 	r->color.b = 1;
 	r->color.a = 1;
 	r->bound_texture = NULL;
+	r->fog_enabled = false;
+	r->fog_density = 0.6f;
+	r->fog_color = ctor(Color, 0.0f, 0.18f, 0.25f, 1.0f);
 
 	int zsize = buffer->width * buffer->height;
 	r->zbuffer = (float*) malloc(zsize * sizeof(float));
@@ -25,7 +27,7 @@ void p3d_rasty_new(Rasterizer* r, Bitmap* buffer) {
 	}
 
 	mat4_viewport(&r->viewport, 0, 0, buffer->width, buffer->height);
-	mat4_perspective(&r->projection, rad(70.0f), (float) buffer->width / (float) buffer->height, 0.01f, 100.f);
+	mat4_perspective(&r->projection, rad(70.0f), (float) buffer->width / (float) buffer->height, 0.01f, 500.f);
 	mat4_identity(&r->view);
 }
 
@@ -72,7 +74,11 @@ void p3d_rasty_triangle(Rasterizer* r, Vertex p1, Vertex p2, Vertex p3) {
 		p3d_vertex_transform(p3, r->viewport),
 	};
 
-	vec3 pts2[3];
+	vec3 pts2[3] = {
+		{ 0, 0, 0 },
+		{ 0, 0, 0 },
+		{ 0, 0, 0 }
+	};
 	for (int i = 0; i < 3; i++) {
 		pts2[i].x = pts[i].position.x / pts[i].position.w;
 		pts2[i].y = pts[i].position.y / pts[i].position.w;
@@ -86,69 +92,153 @@ void p3d_rasty_triangle(Rasterizer* r, Vertex p1, Vertex p2, Vertex p3) {
 		}
 	}
 
-	Point P = { 0, 0, 0 };
-	for (P.x = bboxmin.x; P.x <= bboxmax.x; P.x++) {
-		for (P.y = bboxmin.y; P.y <= bboxmax.y; P.y++) {
+	float sz = (float) max(r->buffer->width, r->buffer->height);
+	float bcsoff = -0.01f / sz;
+
+	for (int py = bboxmin.y; py <= bboxmax.y; ++py) {
+		for (int px = bboxmin.x; px <= bboxmax.x; ++px) {
+			vec2 P = { px, py };
 			vec3 bc_screen = p3d_barycentric(pts2[0], pts2[1], pts2[2], P);
-			if (bc_screen.x < 0.0f || bc_screen.y < 0.0f ||	bc_screen.z < 0.0f) { continue; }
+			if (bc_screen.x < bcsoff || bc_screen.y < bcsoff || bc_screen.z < bcsoff) { continue; }
+
 			vec3 bc_clip = {
 				bc_screen.x / pts[0].position.w,
 				bc_screen.y / pts[1].position.w,
 				bc_screen.z / pts[2].position.w
 			};
 
-			int index = P.x + P.y * r->buffer->width;
 			float depth = bc_clip.x + bc_clip.y + bc_clip.z;
-			depth = 1.0f - depth;
 
-			if (r->zbuffer[index] < depth) {
+			if (r->zbuffer[px + py * r->buffer->width] < depth) {
+				Color col = { 0, 0, 0, 0 };
 				if (r->bound_texture) {
 					float u = (p1.uv.x * bc_clip.x + p2.uv.x * bc_clip.y + p3.uv.x * bc_clip.z) /
 							  (bc_clip.x + bc_clip.y + bc_clip.z);
 					float v = (p1.uv.y * bc_clip.x + p2.uv.y * bc_clip.y + p3.uv.y * bc_clip.z) /
 							  (bc_clip.x + bc_clip.y + bc_clip.z);
 
-					if (u > 1.0f) {
+					if (u < 0.0f) {
+						u = 1.0f + u;
+					} else if (u > 1.0f) {
 						u = u - 1.0f;
-					} else if (u < 0.0f) {
-						u = u + 1.0f;
 					}
-					if (v > 1.0f) {
+					if (v < 0.0f) {
+						v = 1.0f + v;
+					} else if (v > 1.0f) {
 						v = v - 1.0f;
-					} else if (v < 0.0f) {
-						v = v + 1.0f;
 					}
 
-					float tx = (int)(u * r->bound_texture->width);
-					float ty = (int)(v * r->bound_texture->height);
+					int tx = (int)(u * (float)(r->bound_texture->width-1) + 0.5f);
+					int ty = (int)(v * (float)(r->bound_texture->height-1) + 0.5f);
 
-					Color col = p3d_color_mul(r->color, p3d_bitmap_get(r->bound_texture, tx, ty));
-					if (col.a > 0) { // Draws only if alpha is greater than 0
-						r->zbuffer[index] = depth;
-						p3d_bitmap_set(r->buffer, P.x, P.y, col);
-					}
+					col = p3d_color_mul(r->color, p3d_bitmap_get(r->bound_texture, tx, ty));
 				} else {
-					r->zbuffer[index] = depth;
-					p3d_bitmap_set(r->buffer, P.x, P.y, r->color);
+					col = r->color;
+				}
+
+				if (r->fog_enabled && col.a > 0) {
+					float exponent = pow(depth * (1.0f - r->fog_density), 4);
+					float f = 1.0f - (1.0f / exp(exponent));
+
+					col.r = f * col.r + (1.0f - f) * r->fog_color.r;
+					col.g = f * col.g + (1.0f - f) * r->fog_color.g;
+					col.b = f * col.b + (1.0f - f) * r->fog_color.b;
+				}
+
+				if (col.a > 0) {
+					r->zbuffer[px + py * r->buffer->width] = depth;
+					p3d_bitmap_set(r->buffer, px, py, col);
 				}
 			}
 		}
 	}
 }
 
-vec3 p3d_barycentric(vec3 a, vec3 b, vec3 c, Point p) {
+void p3d_rasty_clipped_triangle(Rasterizer* r, Vertex p1, Vertex p2, Vertex p3) {
+	if (p3d_vertex_is_inside_view_frustum(p1) &&
+		p3d_vertex_is_inside_view_frustum(p2) &&
+		p3d_vertex_is_inside_view_frustum(p3))
+	{
+		p3d_rasty_triangle(r, p1, p2, p3);
+		return;
+	}
+
+	Array vertices, aux;
+	array_new(&vertices, Vertex);
+	array_new(&aux, Vertex);
+
+	array_add(&vertices, &p1);
+	array_add(&vertices, &p2);
+	array_add(&vertices, &p3);
+
+	if (p3d_clip_poly_axis(&vertices, &aux, 0) &&
+		p3d_clip_poly_axis(&vertices, &aux, 1) &&
+		p3d_clip_poly_axis(&vertices, &aux, 2))
+	{
+		Vertex initial = array_get(&vertices, 0, Vertex);
+		for (int i = 1; i < vertices.length-1; i++) {
+			Vertex v1 = array_get(&vertices, i, Vertex);
+			Vertex v2 = array_get(&vertices, i+1, Vertex);
+			p3d_rasty_triangle(r, initial, v1, v2);
+		}
+	}
+
+	array_free(&vertices);
+	array_free(&aux);
+}
+
+bool p3d_clip_poly_axis(Array* vertices, Array* aux, int comp) {
+	p3d_clip_poly_component(vertices, comp, 1.0f, aux);
+	array_clear(vertices);
+
+	if (aux->length == 0) {
+		return false;
+	}
+
+	p3d_clip_poly_component(aux, comp, -1.0f, vertices);
+	array_clear(aux);
+
+	return vertices->length != 0;
+}
+
+void p3d_clip_poly_component(Array* vertices, int comp, float fac, Array* result) {
+	Vertex previousVertex = array_get(vertices, vertices->length-1, Vertex);
+	float previousComp = p3d_vertex_get_component(previousVertex, comp) * fac;
+	bool previousInside = previousComp <= previousVertex.position.w;
+
+	for (int i = 0; i < vertices->length; i++) {
+		Vertex currentVertex = array_get(vertices, i, Vertex);
+		float currentComp = p3d_vertex_get_component(currentVertex, comp) * fac;
+		bool currentInside = currentComp <= currentVertex.position.w;
+		if (currentInside ^ previousInside) {
+			float wMB = previousVertex.position.w - previousComp;
+			float lerpAmt = wMB / (wMB - (currentVertex.position.w - currentComp));
+			Vertex lv = p3d_vertex_lerp(previousVertex, currentVertex, lerpAmt);
+			array_add(result, &lv);
+		}
+		if (currentInside) {
+			array_add(result, &currentVertex);
+		}
+
+		previousComp = currentComp;
+		previousInside = currentInside;
+		previousVertex = currentVertex;
+	}
+}
+
+vec3 p3d_barycentric(vec3 a, vec3 b, vec3 c, vec2 p) {
 	vec3 s0 = ctor(vec3, c.x - a.x, b.x - a.x, a.x - p.x);
 	vec3 s1 = ctor(vec3, c.y - a.y, b.y - a.y, a.y - p.y);
 
 	vec3 u = vec3_cross(s0, s1);
 
 	vec3 r = { -1, 1, 1 };
-	if (abs(u.z) > 1e-2) {
-		r.x = 1.0f - (u.x + u.y) / u.z;
-		r.y = u.y / u.z;
-		r.z = u.x / u.z;
+	if (abs(u.z) < 1.0f) {
 		return r;
 	}
+	r.x = 1.0f - (u.x + u.y) / u.z;
+	r.y = u.y / u.z;
+	r.z = u.x / u.z;
 	return r;
 }
 
@@ -182,10 +272,14 @@ void p3d_rasty_model_new(Model* m, Vertex* v, Uint32* i, int nv, int ni) {
 void p3d_rasty_model(Rasterizer* r, Model model, mat4 transform) {
 	mat4 m = mat4_mul_m(mat4_mul_m(r->projection, r->view), transform);
 	for (int i = 0; i < model.num_indices; i += 3) {
-		Vertex v0 = p3d_vertex_transform(model.vertices[model.indices[i + 0]], m);
-		Vertex v1 = p3d_vertex_transform(model.vertices[model.indices[i + 1]], m);
-		Vertex v2 = p3d_vertex_transform(model.vertices[model.indices[i + 2]], m);
-		p3d_rasty_triangle(r, v0, v1, v2);
+		Vertex p0 = model.vertices[model.indices[i + 0]];
+		Vertex p1 = model.vertices[model.indices[i + 1]];
+		Vertex p2 = model.vertices[model.indices[i + 2]];
+		Vertex v0 = p3d_vertex_transform(p0, m);
+		Vertex v1 = p3d_vertex_transform(p1, m);
+		Vertex v2 = p3d_vertex_transform(p2, m);
+
+		p3d_rasty_clipped_triangle(r, v0, v1, v2);
 	}
 }
 
@@ -230,6 +324,18 @@ void p3d_rasty_billboard(Rasterizer* r, vec3 pos) {
 	p3d_rasty_triangle(r, verts[2], verts[3], verts[0]);
 }
 
+void p3d_rasty_sprite(Rasterizer* r, int srcx, int srcy, int srcw, int srch, int dstx, int dsty) {
+	if (!r->bound_texture) return;
+	for (int y = srcy; y < srcy + srch; y++) {
+		for (int x = srcx; x < srcx + srcw; x++) {
+			Color col = p3d_bitmap_get(r->bound_texture, x, y);
+			if (col.a > 0) {
+				p3d_bitmap_set(r->buffer, dstx + x, dsty + y, col);
+			}
+		}
+	}
+}
+
 ////
 
 static int line_size(char* line) {
@@ -241,40 +347,18 @@ static int line_size(char* line) {
 	return sz;
 }
 
-static int count_slashes(char* str) {
-	int c = 0;
-	while (*str != '\0') {
-		if (*str == '/') {
-			c++;
-		}
-		str++;
-	}
-	return c;
-}
-
-static bool has_repeated_slashes(char* str) {
-	int len = line_size(str);
-	for (int i = 0; i < len; i++) {
-		int j = i + 1;
-		if (j > len-1) { break; }
-		if (str[i] == '/' && str[j] == '/') {
-			return true;
-		}
-	}
-	return false;
-}
-
 void p3d_rasty_model_from_file(Model* m, const char* fileName) {
 	FILE* fp = fopen(fileName, "r");
 	if (!fp) {
 		return;
 	}
 
-	int vertex_count = 0, index_count = 0, uv_count = 0;
-	vec4 vertices[MAX_ITEMS];
-	vec2 uvs[MAX_ITEMS];
-	int uv_indices[MAX_ITEMS];
-	int vert_indices[MAX_ITEMS];
+	int index_count = 0;
+	Array vert_indices, uv_indices, uvs, vertices;
+	array_new(&vert_indices, int);
+	array_new(&uv_indices, int);
+	array_new(&uvs, vec2);
+	array_new(&vertices, vec4);
 
 	char line[512];
 	while (fgets(line, 512, fp) != NULL)  {
@@ -283,46 +367,127 @@ void p3d_rasty_model_from_file(Model* m, const char* fileName) {
 			char v;
 			float vx, vy, vz;
 			sscanf(line, "%c %f %f %f", &v, &vx, &vy, &vz);
-			vertices[vertex_count++] = ctor(vec4, vx, vy, vz, 1);
+			vec4 pos = ctor(vec4, vx, vy, vz, 1);
+			array_add(&vertices, &pos);
 		} else if (line[0] == 'v' && line[1] == 't') {
 			char v[2];
 			float tx, ty;
 			sscanf(line, "%s %f %f", v, &tx, &ty);
-			uvs[uv_count++] = ctor(vec2, tx, ty);
+			vec2 uv = ctor(vec2, tx, ty);
+			array_add(&uvs, &uv);
 		} else if (line[0] == 'f' && line[1] == ' ') {
 			char v;
-			char v0[16], v1[16], v2[16];
-			sscanf(line, "%c %s %s %s", &v, v0, v1, v2);
-			char* vs[3] = { v0, v1, v2 };
-			for (int i = 0; i < 3; i++) {
-				char* vstr = vs[i];
-				int slashes = count_slashes(vstr);
-				bool repeated = has_repeated_slashes(vstr);
-				if (!repeated && slashes == 1) { // POS/UV
-					int pos, uv;
-					sscanf(vstr, "%d/%d", &pos, &uv);
-					vert_indices[index_count] = pos;
-					uv_indices[index_count] = uv;
+			int idx[3][2];
+			int read = sscanf(line, "%c %d/%d %d/%d %d/%d",
+					&v,
+					&idx[0][0], &idx[0][1],
+					&idx[1][0], &idx[1][1],
+					&idx[2][0], &idx[2][1]
+			);
+			if (read == 7) {
+				for (int i = 0; i < 3; i++) {
+					int pos = idx[i][0]-1;
+					int uv = idx[i][1]-1;
+					array_add(&vert_indices, &pos);
+					array_add(&uv_indices, &uv);
 					index_count++;
 				}
 			}
+		} else if (line[0] == '#') {
+			continue;
 		}
 	}
 	fclose(fp);
 
-	Vertex f_verts[MAX_ITEMS];
-	int f_indices[MAX_ITEMS];
+	Vertex* f_verts = (Vertex*) malloc(vertices.length * sizeof(Vertex));
+	int* f_inds = (int*) malloc(index_count * sizeof(int));
 
 	for (int i = 0; i < index_count; i++) {
-		int vertex_index = vert_indices[i];
-		int uv_index = uv_indices[i];
-		f_verts[vertex_index].position = vertices[vertex_index-1];
-		f_verts[vertex_index].uv = uvs[uv_index-1];
-		f_indices[i] = vertex_index;
+		int vertex_index = array_get(&vert_indices, i, int);
+		int uv_index = array_get(&uv_indices, i, int);
+		vec4 pos = array_get(&vertices, vertex_index, vec4);
+		vec2 uv = array_get(&uvs, uv_index, vec2);
+		f_verts[vertex_index].position = ctor(vec4, pos.x, pos.y, pos.z, pos.w);
+		f_verts[vertex_index].normal = ctor(vec3, 0, 0, 0);
+		f_verts[vertex_index].uv = ctor(vec2, uv.x, uv.y);
+		f_inds[i] = vertex_index;
 	}
 
-	m->indices = f_indices;
+	array_free(&vertices);
+	array_free(&uvs);
+	array_free(&vert_indices);
+	array_free(&uv_indices);
+
+	m->indices = f_inds;
 	m->vertices = f_verts;
 	m->num_indices = index_count;
-	m->num_vertices = vertex_count;
+	m->num_vertices = vertices.length;
+}
+
+void p3d_rasty_model_free(Model* m) {
+	free(m->indices);
+	free(m->vertices);
+}
+
+void p3d_rasty_model_calc_normals(Model* m) {
+	for (int i = 0; i < m->num_indices; i += 3) {
+		int i0 = m->indices[i + 0];
+		int i1 = m->indices[i + 1];
+		int i2 = m->indices[i + 2];
+		Vertex v0 = m->vertices[i0];
+		Vertex v1 = m->vertices[i1];
+		Vertex v2 = m->vertices[i2];
+
+		if (v0.position.y > v1.position.y) swap(Vertex, v0, v1);
+		if (v0.position.y > v2.position.y) swap(Vertex, v0, v2);
+		if (v1.position.y > v2.position.y) swap(Vertex, v1, v2);
+
+		vec3 p0 = vec3_from_vec4(v0.position);
+		vec3 p1 = vec3_from_vec4(v1.position);
+		vec3 p2 = vec3_from_vec4(v2.position);
+
+		vec3 e0 = vec3_sub(p1, p0);
+		vec3 e1 = vec3_sub(p2, p0);
+
+		vec3 n = vec3_normalize(vec3_cross(e0, e1));
+
+		m->vertices[i + 0].normal = n;
+		m->vertices[i + 1].normal = n;
+		m->vertices[i + 2].normal = n;
+	}
+
+}
+
+void p3d_rasty_line_3d(Rasterizer* r, vec3 p0, vec3 p1) {
+	mat4 m = mat4_mul_m(r->projection, r->view);
+	vec4 v0 = mat4_mul_v4(m, ctor(vec4, p0.x, p0.y, p0.z, 1.0f));
+	vec4 v1 = mat4_mul_v4(m, ctor(vec4, p1.x, p1.y, p1.z, 1.0f));
+
+	vec4 pts[2] = { // Viewport transform
+		mat4_mul_v4(r->viewport, v0),
+		mat4_mul_v4(r->viewport, v1)
+	};
+
+	vec2 pts2[2] = {
+		{ 0, 0 },
+		{ 0, 0 }
+	};
+	for (int i = 0; i < 2; i++) {
+		pts2[i].x = pts[i].x / pts[i].w;
+		pts2[i].y = pts[i].y / pts[i].w;
+	}
+
+	p3d_rasty_line(r, (int) pts2[0].x, (int) pts2[0].y, (int) pts2[1].x, (int) pts2[1].y);
+}
+
+void p3d_rasty_set_fog_enabled(Rasterizer* r, bool enabled) {
+	r->fog_enabled = enabled;
+}
+
+void p3d_rasty_set_fog_density(Rasterizer* r, float density) {
+	r->fog_density = density;
+}
+
+void p3d_rasty_set_fog_color(Rasterizer* r, Color color) {
+	r->fog_color = color;
 }

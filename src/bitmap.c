@@ -78,23 +78,12 @@ void p3d_bitmap_invalidate(Bitmap* bmp) {
 	SDL_LockSurface(bmp->surface);
 
 	size_t n = bmp->width * bmp->height * 4;
-	Uint8* bmp_pixels = (Uint8*) malloc(n * sizeof(Uint8));
-	for (int y = 0; y < bmp->height; y++) {
-		for (int x = 0; x < bmp->width; x++) {
-			size_t i = (x + y * bmp->width) * 4;
-			bmp_pixels[i + 0] = bmp->pixels[i + 0]; // b
-			bmp_pixels[i + 1] = bmp->pixels[i + 1]; // g
-			bmp_pixels[i + 2] = bmp->pixels[i + 2]; // r
-			bmp_pixels[i + 3] = bmp->pixels[i + 3]; // a
-		}
-	}
-
 	Uint8* pixels = (Uint8*) bmp->surface->pixels;
-	SDL_memcpy(pixels, bmp_pixels, n);
+
+	memcpy(pixels, bmp->pixels, n);
 
 	SDL_UnlockSurface(bmp->surface);
 
-	free(bmp_pixels);
 }
 
 void p3d_bitmap_set(Bitmap* bmp, int x, int y, Color color) {

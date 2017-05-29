@@ -156,9 +156,9 @@ mat4 mat4_mul_m(mat4 a, mat4 b) {
 vec3 mat4_mul_v(mat4 a, vec3 b, float w) {
 	vec3 r;
 	vec4 _v = mat4_mul_v4(a, ctor(vec4, b.x, b.y, b.z, w));
-	r.x = _v.x / _v.w;
-	r.y = _v.y / _v.w;
-	r.z = _v.z / _v.w;
+	r.x = _v.x;
+	r.y = _v.y;
+	r.z = _v.z;
 	return r;
 }
 
@@ -245,14 +245,14 @@ void mat4_perspective(mat4* m, float fov, float aspect, float znear, float zfar)
 }
 
 void mat4_viewport(mat4* m, int x, int y, int w, int h) {
-	mat4_identity(m);
-	m->value[0][3] = x + w / 2.0f;
-	m->value[1][3] = y + h / 2.0f;
-	m->value[2][3] = 0.5f;
+	float hw = w / 2.0f;
+	float hh = h / 2.0f;
 
-	m->value[0][0] = w / 2.0f;
-	m->value[1][1] = -h / 2.0f;
-	m->value[2][2] = 0.5f;
+	mat4_identity(m);
+	m->value[0][3] = x + hw;
+	m->value[1][3] = y + hh;
+	m->value[0][0] = hw;
+	m->value[1][1] = -hh;
 }
 
 void mat4_lookat(mat4* m, vec3 eye, vec3 center, vec3 up) {
@@ -347,4 +347,122 @@ vec4 mat4_get_column(mat4 m, int index) {
 
 vec4 vec4_negate(vec4 v) {
 	return ctor(vec4, -v.x, -v.y, -v.z, -v.w);
+}
+
+mat4 mat4_transpose(mat4 m) {
+	mat4 r;
+	r.value[0][0] = m.value[0][0];
+	r.value[0][1] = m.value[1][0];
+	r.value[0][2] = m.value[2][0];
+	r.value[0][3] = m.value[3][0];
+
+	r.value[1][0] = m.value[0][1];
+	r.value[1][1] = m.value[1][1];
+	r.value[1][2] = m.value[2][1];
+	r.value[1][3] = m.value[3][1];
+
+	r.value[2][0] = m.value[0][2];
+	r.value[2][1] = m.value[1][2];
+	r.value[2][2] = m.value[2][2];
+	r.value[2][3] = m.value[3][2];
+
+	r.value[3][0] = m.value[0][3];
+	r.value[3][1] = m.value[1][3];
+	r.value[3][2] = m.value[2][3];
+	r.value[3][3] = m.value[3][3];
+	return r;
+}
+
+mat4 mat4_invert(mat4 m) {
+	mat4 r, result;
+	float tmp[12];
+	float src[16];
+	float det;
+	for (int i = 0; i < 4; i++) {
+		src[i + 0 ] = m.value[i][0];
+		src[i + 4 ] = m.value[i][1];
+		src[i + 8 ] = m.value[i][2];
+		src[i + 12] = m.value[i][3];
+	}
+
+	tmp[0] = src[10] * src[15];
+	tmp[1] = src[11] * src[14];
+	tmp[2] = src[9] * src[15];
+	tmp[3] = src[11] * src[13];
+	tmp[4] = src[9] * src[14];
+	tmp[5] = src[10] * src[13];
+	tmp[6] = src[8] * src[15];
+	tmp[7] = src[11] * src[12];
+	tmp[8] = src[8] * src[14];
+	tmp[9] = src[10] * src[12];
+	tmp[10] = src[8] * src[13];
+	tmp[11] = src[9] * src[12];
+
+	r.value[0][0] = tmp[0]*src[5] + tmp[3]*src[6] + tmp[4]*src[7];
+	r.value[0][0] -= tmp[1]*src[5] + tmp[2]*src[6] + tmp[5]*src[7];
+	r.value[0][1] = tmp[1]*src[4] + tmp[6]*src[6] + tmp[9]*src[7];
+	r.value[0][1] -= tmp[0]*src[4] + tmp[7]*src[6] + tmp[8]*src[7];
+	r.value[0][2] = tmp[2]*src[4] + tmp[7]*src[5] + tmp[10]*src[7];
+	r.value[0][2] -= tmp[3]*src[4] + tmp[6]*src[5] + tmp[11]*src[7];
+	r.value[0][3] = tmp[5]*src[4] + tmp[8]*src[5] + tmp[11]*src[6];
+	r.value[0][3] -= tmp[4]*src[4] + tmp[9]*src[5] + tmp[10]*src[6];
+	r.value[1][0] = tmp[1]*src[1] + tmp[2]*src[2] + tmp[5]*src[3];
+	r.value[1][0] -= tmp[0]*src[1] + tmp[3]*src[2] + tmp[4]*src[3];
+	r.value[1][1] = tmp[0]*src[0] + tmp[7]*src[2] + tmp[8]*src[3];
+	r.value[1][1] -= tmp[1]*src[0] + tmp[6]*src[2] + tmp[9]*src[3];
+	r.value[1][2] = tmp[3]*src[0] + tmp[6]*src[1] + tmp[11]*src[3];
+	r.value[1][2] -= tmp[2]*src[0] + tmp[7]*src[1] + tmp[10]*src[3];
+	r.value[1][3] = tmp[4]*src[0] + tmp[9]*src[1] + tmp[10]*src[2];
+	r.value[1][3] -= tmp[5]*src[0] + tmp[8]*src[1] + tmp[11]*src[2];
+
+	tmp[0] = src[2]*src[7];
+	tmp[1] = src[3]*src[6];
+	tmp[2] = src[1]*src[7];
+	tmp[3] = src[3]*src[5];
+	tmp[4] = src[1]*src[6];
+	tmp[5] = src[2]*src[5];
+
+	tmp[6] = src[0]*src[7];
+	tmp[7] = src[3]*src[4];
+	tmp[8] = src[0]*src[6];
+	tmp[9] = src[2]*src[4];
+	tmp[10] = src[0]*src[5];
+	tmp[11] = src[1]*src[4];
+
+	r.value[2][0] = tmp[0]*src[13] + tmp[3]*src[14] + tmp[4]*src[15];
+	r.value[2][0] -= tmp[1]*src[13] + tmp[2]*src[14] + tmp[5]*src[15];
+	r.value[2][1] = tmp[1]*src[12] + tmp[6]*src[14] + tmp[9]*src[15];
+	r.value[2][1] -= tmp[0]*src[12] + tmp[7]*src[14] + tmp[8]*src[15];
+	r.value[2][2] = tmp[2]*src[12] + tmp[7]*src[13] + tmp[10]*src[15];
+	r.value[2][2] -= tmp[3]*src[12] + tmp[6]*src[13] + tmp[11]*src[15];
+	r.value[2][3] = tmp[5]*src[12] + tmp[8]*src[13] + tmp[11]*src[14];
+	r.value[2][3] -= tmp[4]*src[12] + tmp[9]*src[13] + tmp[10]*src[14];
+	r.value[3][0] = tmp[2]*src[10] + tmp[5]*src[11] + tmp[1]*src[9];
+	r.value[3][0] -= tmp[4]*src[11] + tmp[0]*src[9] + tmp[3]*src[10];
+	r.value[3][1] = tmp[8]*src[11] + tmp[0]*src[8] + tmp[7]*src[10];
+	r.value[3][1] -= tmp[6]*src[10] + tmp[9]*src[11] + tmp[1]*src[8];
+	r.value[3][2] = tmp[6]*src[9] + tmp[11]*src[11] + tmp[3]*src[8];
+	r.value[3][2] -= tmp[10]*src[11] + tmp[2]*src[8] + tmp[7]*src[9];
+	r.value[3][3] = tmp[10]*src[10] + tmp[4]*src[8] + tmp[9]*src[9];
+	r.value[3][3] -= tmp[8]*src[9] + tmp[11]*src[10] + tmp[5]*src[8];
+
+	det = src[0]*r.value[0][0]+src[1]*r.value[0][1]+src[2]*r.value[0][2]+src[3]*r.value[0][3];
+	det = 1.0f / det;
+
+	for (int i = 0; i < 4; i++) {
+		for (int j = 0; j < 4; j++) {
+			result.value[i][j] = r.value[i][j] * det;
+		}
+	}
+	return result;
+}
+
+vec2 vec2_rotate(vec2 p, float a) {
+	float c = cos(a);
+	float s = sin(a);
+
+	vec2 r;
+	r.x = (c * p.x) - (s * p.y);
+	r.y = (s * p.x) + (c * p.y);
+	return r;
 }

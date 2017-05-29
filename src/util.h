@@ -5,6 +5,7 @@
 
 #define ctor(type, ...) (type){ __VA_ARGS__ }
 #define swap(type, a, b) { type ___p3d_swap_tmp_var = a; a = b; b = ___p3d_swap_tmp_var; }
+#define lerp(a, b, t) ((1.0f - t) * a + b * t)
 
 typedef uint8_t bool;
 #define true 1
